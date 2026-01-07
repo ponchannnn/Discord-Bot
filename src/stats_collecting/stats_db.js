@@ -33,9 +33,11 @@ db.exec(`
     user_id TEXT,
     guild_id TEXT,
     channel_id TEXT,
+    message_id TEXT,
     timestamp INTEGER,
     char_count INTEGER,
-    has_image INTEGER -- 0 or 1
+    has_image INTEGER, -- 0 or 1
+    content TEXT
   );
 `);
 
@@ -54,8 +56,8 @@ module.exports = {
     stmt.run(userId, guildId, channelId, startTime, endTime, duration, type);
   },
   // メッセージ統計保存
-  saveMessageLog: (userId, guildId, channelId, charCount, hasImage) => {
-    const stmt = db.prepare('INSERT INTO message_logs (user_id, guild_id, channel_id, timestamp, char_count, has_image) VALUES (?, ?, ?, ?, ?, ?)');
-    stmt.run(userId, guildId, channelId, Date.now(), charCount, hasImage ? 1 : 0);
+  saveMessageLog: (userId, guildId, channelId, messageId, charCount, hasImage, content) => {
+    const stmt = db.prepare('INSERT INTO message_logs (user_id, guild_id, channel_id, message_id, timestamp, char_count, has_image, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    stmt.run(userId, guildId, channelId, messageId, Date.now(), charCount, hasImage ? 1 : 0, content);
   },
 };

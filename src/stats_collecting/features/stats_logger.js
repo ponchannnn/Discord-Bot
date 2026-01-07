@@ -62,7 +62,7 @@ module.exports = (client) => {
     if (!message.guild || !isTarget(message.guild.id, message.author.id, message.author.bot)) return;
     const charCount = message.content.length;
     const hasImage = message.attachments.size > 0;
-    db.saveMessageLog(message.author.id, message.guild.id, message.channelId, charCount, hasImage);
+    db.saveMessageLog(message.author.id, message.guild.id, message.channelId, message.id, charCount, hasImage, message.content);
   });
 
   // VC状態監視
