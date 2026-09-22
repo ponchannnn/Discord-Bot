@@ -1,8 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const CHANNELS_FILE = path.join(__dirname, '../mc_channels.json');
+const paths = require('../../config/paths');
+
+const CHANNELS_FILE = path.join(paths.dataDir, 'mc_channels.json');
 
 let mcChannels = {};
+
 function load() {
   try {
     mcChannels = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf8'));
@@ -26,4 +29,4 @@ function getAll() {
 }
 load();
 
-module.exports = { get, set, getAll , load };
+module.exports = { get, set, getAll, load };

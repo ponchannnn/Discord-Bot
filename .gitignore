@@ -3,3 +3,7 @@ calendarConfig.js
 environ.json
 .env
 node_modules/
+
+# ランタイムで生成されるデータ（統計DB, Minecraftチャンネル紐付け等）
+data/*
+!data/.gitkeep
