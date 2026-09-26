@@ -8,7 +8,7 @@ const DISCORD_MESSAGE_LIMIT = 2000;
 const LOG_DIR = path.join(paths.dataDir, 'logs');
 
 let client = null;
-let ownerId = null;
+let logTarget = null;
 // DM送信を直列化して順序を保つ
 let sendChain = Promise.resolve();
 
@@ -30,11 +30,14 @@ function writeToFile(line) {
   }
 }
 
-async function sendToOwner(line) {
+async function sendToChannel(line) {
   if (!client?.isReady()) throw new Error('Discord client not ready');
-  const owner = await client.users.fetch(ownerId);
+  const channel = await client.channels.fetch(logTarget.channelId);
+  if (!channel?.isTextBased() || channel.guildId !== logTarget.guildId) {
+    throw new Error('Log channel not found in the configured guild');
+  }
   const text = line.length > DISCORD_MESSAGE_LIMIT - 10 ? line.slice(0, DISCORD_MESSAGE_LIMIT - 10) + '…' : line;
-  await owner.send('```\n' + text.replace(/```/g, "'''") + '\n```');
+  await channel.send('```\n' + text.replace(/```/g, "'''") + '\n```');
 }
 
 function log(level, args) {
@@ -43,19 +46,19 @@ function log(level, args) {
   consoleFn(line);
 
   if (LEVELS[level] < DM_MIN_LEVEL) return;
-  if (!ownerId) {
+  if (!logTarget) {
     writeToFile(line);
     return;
   }
   sendChain = sendChain
-    .then(() => sendToOwner(line))
+    .then(() => sendToChannel(line))
     .catch(() => writeToFile(line));
 }
 
 // ready後に呼ぶ。それまでのDM対象ログはファイルに貯まる
-function attachDiscord(discordClient, ownerUserId) {
+function attachDiscord(discordClient, target) {
   client = discordClient;
-  ownerId = ownerUserId;
+  logTarget = target;
 }
 
 module.exports = {

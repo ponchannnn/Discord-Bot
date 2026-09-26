@@ -5,6 +5,12 @@ module.exports = {
   // 各種通知をDMで受け取るBot管理者
   botOwnerUserId: '739006634533060702',
 
+  // warn/errorログの送信先チャンネル (infra/logger)
+  logging: {
+    guildId: '1235463523581296692',
+    channelId: '1384431966404743178',
+  },
+
   // 特定ユーザーのオンライン状況をDM通知する機能 (features/presenceWatch)
   presenceWatch: {
     guildId: '1205961095760580679', // Minecraft just win server

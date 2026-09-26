@@ -8,7 +8,7 @@ const registerFeatures = require('./bot/registerFeatures');
 const client = createClient();
 const lifecycle = registerFeatures(client);
 
-client.once('ready', () => logger.attachDiscord(client, targets.botOwnerUserId));
+client.once('ready', () => logger.attachDiscord(client, targets.logging));
 client.login(env.discordToken);
 
 const shutdown = async (signal) => {
