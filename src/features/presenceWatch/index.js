@@ -51,7 +51,7 @@ module.exports = {
           await me.send(`${o.user.globalName}さんが${now}にPC中にスマホ:${n.clientStatus.mobile}になりました。`);
         }
       } else if (!o.activities[0] && n.activities[0] && n.activities[0].name !== 'Hang Status') {
-        const start = formatTime(n.activities[0].timestamps.start);
+        const start = formatTime(n.activities[0].timestamps?.start ?? new Date());
         await me.send(`${o.user.globalName}さんが${start}に${n.activities[0].name}を始めました。`);
       } else if (o.activities[0] && !n.activities[0] && o.activities[0].name !== 'Hang Status') {
         await me.send(`${o.user.globalName}さんが${now}に${o.activities[0].name}をやめました。`);
