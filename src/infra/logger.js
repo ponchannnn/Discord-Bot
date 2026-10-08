@@ -12,9 +12,12 @@ let logTarget = null;
 // DM送信を直列化して順序を保つ
 let sendChain = Promise.resolve();
 
-function format(level, args) {
+function format(level, args, { withStack = true } = {}) {
   const body = args
-    .map((a) => (a instanceof Error ? a.stack || a.message : typeof a === 'string' ? a : JSON.stringify(a)))
+    .map((a) => {
+      if (a instanceof Error) return withStack ? a.stack || a.message : a.message;
+      return typeof a === 'string' ? a : JSON.stringify(a);
+    })
     .join(' ');
   return `[${new Date().toISOString()}] [${level.toUpperCase()}] ${body}`;
 }
@@ -50,8 +53,10 @@ function log(level, args) {
     writeToFile(line);
     return;
   }
+  // Discordには文章のみ送る(スタックトレースはコンソール/ファイルにだけ残す)
+  const discordLine = format(level, args, { withStack: false });
   sendChain = sendChain
-    .then(() => sendToChannel(line))
+    .then(() => sendToChannel(discordLine))
     .catch(() => writeToFile(line));
 }
 
