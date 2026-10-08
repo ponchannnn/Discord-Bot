@@ -24,6 +24,12 @@ module.exports = {
     announceChannelId: '1194537981583831102',
   },
 
+  // eufy体組成データのEmbed更新・ownerニックネーム変更対象 (features/eufyStats)
+  eufyStats: {
+    guildId: '1235463523581296692',
+    channelId: '1384431966404743178',
+  },
+
   // VC/メッセージ統計の収集対象 (features/statsCollecting)
   statsCollecting: {
     targetGuilds: [

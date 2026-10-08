@@ -7,3 +7,8 @@ node_modules/
 # ランタイムで生成されるデータ（統計DB, Minecraftチャンネル紐付け等）
 data/*
 !data/.gitkeep
+
+# eufy API調査スクリプトの実クレデンシャル・レスポンス出力
+test/eufy/credentials.json
+test/eufy/output/*
+!test/eufy/output/.gitkeep

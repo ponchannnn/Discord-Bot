@@ -11,7 +11,7 @@ eufy Life（Ankerの体重計）で測定した最新の体重・体組成デー
 1. eufy Life の非公式APIにログインし、最新の体組成データを取得する
 2. 指定したDiscordサーバー・チャンネルの**既存メッセージ（メッセージIDを指定）**を、取得したデータを整形したEmbedで**編集（edit）**する(もしメッセージIDがなければ、チャンネルIDに新規で作成し、メッセージIDを記憶する)
 3. Botのサーバー内ニックネームを、最新体重を含む文字列（例：`68.2`）に変更する
-4. 更新用のリアクションボタンを一つ配置し、誰かに押されたら、その人のリアクションボタンを削除して更新する
+4. 更新用のリアクションボタンを一つ配置し、誰かに押されたら、その人のリアクションボタンを削除して更新する（**自動同期は行わない。更新はこのリアクション操作のみを起点とする**）
 
 ---
 
@@ -21,105 +21,52 @@ eufy Life（Ankerの体重計）で測定した最新の体重・体組成デー
 
 | 変数名 | 用途 |
 |---|---|
-| `EUFY_EMAIL` | eufy Lifeアカウントのメールアドレス |
-| `EUFY_PASSWORD` | eufy Lifeアカウントのパスワード |
-| `EUFY_CLIENT_ID` | 固定値: `eufy-app` |
-| `EUFY_CLIENT_SECRET` | 固定値: `8FHf22gaTKu7MZXqz5zytw`（APKから抽出された共通値。ユーザー固有の秘密ではない） |
-| `DISCORD_GUILD_ID` | ニックネーム変更対象のサーバーID |
-| `DISCORD_CHANNEL_ID` | Embedを編集するメッセージがあるチャンネルID |
-| `DISCORD_MESSAGE_ID` | 編集対象の既存メッセージID（Bot自身が送信したもの） |
+| `EUFY_EMAIL` | eufy Lifeアカウントのメールアドレス（必須） |
+| `EUFY_PASSWORD` | eufy Lifeアカウントのパスワード（必須） |
+| `EUFY_CLIENT_ID` | 任意。未設定時は固定値`eufy-app`を使用 |
+| `EUFY_CLIENT_SECRET` | 任意。未設定時は固定値`8FHf22gaTKu7MZXqz5zytw`を使用（APKから抽出された共通値。ユーザー固有の秘密ではない） |
 
-※ `EUFY_ACCESS_TOKEN` / `EUFY_REFRESH_TOKEN` は初回ログイン後に取得し、以後はキャッシュ・再利用する想定（トークンの有効期限は30日程度という報告あり。期限切れ時は再ログインまたはrefreshで対応）。
+`EUFY_EMAIL`/`EUFY_PASSWORD`が未設定の場合、他機能はそのまま動作し `eufyStats` 機能のみ無効化される（`registerFeatures.js`のfeature単位try/catchによるfault isolation。詳細は[`src/config/env.js`](./src/config/env.js)参照）。
+
+対象サーバー・チャンネルIDは他機能と同様に秘匿情報ではないため、env経由ではなく [`src/config/targets.js`](./src/config/targets.js) の `eufyStats` に直接記述する（実装前に実際のIDへ書き換えが必要）。編集対象のメッセージIDは要件2の通り自動採番され、`data/eufy_message.json` に永続化される（`src/features/eufyStats/messageStore.js`）。
+
+※ `access_token` は初回ログイン後に取得し、以後はキャッシュ・再利用する想定（有効期限30日＝`expires_in: 2592000`と確認済み）。リフレッシュ専用エンドポイントは非公開のため、期限切れ時は**再ログイン**で対応する（詳細は [`eufyApiReference.md`](./eufyApiReference.md#1-ログイン) 参照）。
 
 ---
 
-## 4. eufy Life API（非公式・APK解析ベース）
+## 4. eufy Life API（非公式）
 
 ベースURL: `https://home-api.eufylife.com/v1/`
 
-### 4.1 認証
+エンドポイント一覧・実レスポンス構造・単位換算などの確定情報は調査済みのため、詳細は別ファイルにまとめた:
 
-```
-POST /user/v2/email/login
-Headers:
-  category: Health
-  Content-Type: application/json
-Body:
-{
-  "client_id": "eufy-app",
-  "client_secret": "8FHf22gaTKu7MZXqz5zytw",
-  "email": "<EUFY_EMAIL>",
-  "password": "<EUFY_PASSWORD>"
-}
-```
+**→ [`eufyApiReference.md`](./eufyApiReference.md) を参照**
 
-**レスポンス（想定・未検証）**: `access_token`, `refresh_token`, ユーザー情報などを含むJSON。以降のリクエストは `token: <access_token>` ヘッダーを付与する。
+実装で使うのは以下の3つ:
 
-> ⚠️ 実際のレスポンス構造は未確認。取得でき次第このセクションを更新する。
+1. `POST /user/v2/email/login` — ログイン、`access_token`取得
+2. `GET /device/data`（`after=<unix秒>`付き） — 測定データ。前回同期した測定の`create_time`を`after`に渡すことで、新規測定が無ければ空配列（約60バイト）だけ返る差分取得ができる（`measurementStore.js`が基準値を保持）
+3. （初回のみ）`GET /device/data`（`after`無し） — 履歴全件から先頭2件を取得し、以後の差分取得の基準にする
 
-### 4.2 デバイス一覧取得
-
-```
-GET /device/
-GET /device/v2  (グループ情報も含むv2版)
-Headers:
-  token: <ACCESS_TOKEN>
-```
-
-体重計の `deviceId` を特定するために使用。**最初に一度叩いて `deviceId` を確定させ、以後は環境変数 `EUFY_DEVICE_ID` として固定してよい**。
-
-### 4.3 最新データ取得（優先候補）
-
-```
-GET /device/last_device_data
-Headers:
-  token: <ACCESS_TOKEN>
-```
-
-全デバイスの最新測定データを一括取得できると推測される。毎日のバッチ処理では、これを叩いて対象deviceIdのデータだけ抽出するのが最もシンプル。
-
-### 4.4 履歴データ取得（代替・詳細用）
-
-```
-GET /device/{deviceId}/data
-GET /device/data
-Headers:
-  token: <ACCESS_TOKEN>
-```
-
-期間指定や複数件取得が必要な場合はこちら。クエリパラメータ（開始日・終了日など）は未確認。
-
-### 4.5 体組成詳細（3Dモデルデータ・任意）
-
-```
-GET /body_model/
-Headers:
-  token: <ACCESS_TOKEN>
-```
-
-体脂肪率・筋肉量など、より詳細な体組成データが含まれる可能性がある。`device/last_device_data` で十分な項目が取れない場合の補完用。
+`body_model`（3Dモデルデータ）は今回のEmbed表示には使わない。
 
 ---
 
-## 5. データマッピング（Discord Embedに表示する項目案）
+## 5. データマッピング（Discord Embedに表示する項目）
 
-eufy製の体組成計は機種によって取得項目が異なるが、一般的に以下が候補（**実際のレスポンスが届き次第、フィールド名を確定させる**）:
+測定データの `scale_data` から以下を抽出してEmbedに表示する。各項目は前回測定との差分（▲/▼/± 0）付きで表示する。フィールド名・単位の詳細は [`eufyApiReference.md#7-フィールドマッピング確定版`](./eufyApiReference.md#7-フィールドマッピング確定版) 参照。
 
-| 表示したい項目 | 想定フィールド名（仮） | 単位 |
-|---|---|---|
-| 体重 | `weight` | kg |
-| BMI | `bmi` | - |
-| 体脂肪率 | `bodyFat` / `fat_percent` | % |
-| 筋肉量 | `muscleMass` | kg |
-| 骨量 | `boneMass` | kg |
-| 水分率 | `bodyWater` / `water_percent` | % |
-| 基礎代謝量 | `bmr` | kcal |
-| 内臓脂肪レベル | `visceralFat` | - |
-| タンパク質率 | `protein` | % |
-| 心拍数（対応機種のみ） | `heartRate` | bpm |
-| 測定日時 | `createTime` / `time` | timestamp |
-
-> 🔧 **TODO**: 実際のAPIレスポンスをいただき次第、上記フィールド名と単位・小数桁数を確定する。
+- 体重（`weight` ÷10）
+- BMI（`bmi`）
+- 体脂肪率（`body_fat`）
+- 筋肉量（`muscle_mass`）
+- 骨量（`bone_mass`）
+- 水分率（`water`）
+- 基礎代謝量（`bmr`）
+- 内臓脂肪レベル（`visceral_fat`）
+- タンパク質率（`protein_ratio`）
+- 心拍数（`heart_rate`、`0`は未測定として非表示）
+- 測定日時（`create_time`）
 
 ---
 
@@ -138,40 +85,38 @@ eufy製の体組成計は機種によって取得項目が異なるが、一般�
 
 ### 6.2 ニックネーム変更
 
-- `guild.members.fetch(botUserId)` → `member.setNickname(\`みずき (${weight}kg)\`)`
-- Botに **「ニックネームの管理」権限** が必要（サーバー設定でBotロールに付与しておく）
-- 変更対象はユーザー本人（みずきさん）のニックネーム
+- `guild.members.fetch(targets.botOwnerUserId)` → `member.setNickname(weight)`（Bot自身ではなくownerのニックネームを変更）
+- Botに **「ニックネームの管理」権限** が必要で、かつBotのロールがowner本人のロールより上位である必要がある
+- Discordの仕様上、**サーバーオーナー本人のニックネームはBotから変更できない**
+- 失敗時はtry/catchでログのみ出して処理を継続する（Embed更新は成功させる）
 
 ---
 
-## 7. バッチ実行
+## 7. 実行トリガー
 
-- `node-cron` を利用し、例: 毎日 7:00 に実行
-```js
-cron.schedule('0 7 * * *', runDailySync, { timezone: 'Asia/Tokyo' });
-```
-- 実行フロー:
+自動バッチ（cron等）は使わない。**Bot起動時にEmbedメッセージ＋🔄リアクションの存在だけを保証し、実際のデータ同期は誰かが🔄を押した時のみ**実行する。
+
+- 実行フロー（`src/features/eufyStats/sync.js` の `runSync`）:
   1. eufy API ログイン（トークンがキャッシュ済みかつ有効なら省略）
-  2. `device/last_device_data` 取得
-  3. 対象deviceIdのデータを抽出・整形
-  4. Discordメッセージ編集
-  5. ニックネーム更新
-  6. ログ出力（成功/失敗）
+  2. `measurementStore`に保存済みの前回測定があれば、その`create_time`を`after`にして差分取得。無ければ全件取得して先頭2件を基準にする
+  3. 新規データが無ければ前回値のままEmbedに「更新なし」と表示して終了（ニックネーム変更はスキップ）
+  4. 新規データがあれば `measurementStore` を更新し、Discordメッセージ編集・ニックネーム変更を行う
+  5. ログ出力（成功/失敗、測定日時、新規有無）
 
 ---
 
 ## 8. エラーハンドリング方針
 
-- eufyトークン期限切れ → 自動で再ログインを試みる
-- eufy APIから新規データが取れなかった場合 → 前回値を維持し、Embedに「更新なし」の旨を表示
-- Discord API側のレート制限・権限エラー → リトライ + ログ記録
-- デバイスがオフライン等でデータ欠損 → 該当項目を「-」表示
+- eufyトークン期限切れ（401） → 自動で再ログインを試みる（`eufyClient.js`が1回だけリトライ）
+- eufy APIから新規データが取れなかった場合 → 前回値（`measurementStore`のキャッシュ）を維持し、Embedのフッターに「更新なし」の旨を表示。ニックネーム変更はスキップして実装済み
+- Discord側の権限エラー（ニックネーム変更・リアクション削除） → try/catchでログのみ出して処理を継続。実装済み
 
 ---
 
-## 9. 未確定事項（要ヒアリング／レスポンス確認待ち）
+## 9. 未確定事項
 
-- [ ] ログインAPIの実際のレスポンス構造（トークンの有効期限フィールド含む）
-- [ ] `device/last_device_data` の実レスポンス（フィールド名・ネスト構造）
-- [ ] お使いの体重計の機種（対応する体組成項目の確定のため）
-- [ ] Embedの見た目の希望（色・アイコン画像など）
+API仕様は [`eufyApiReference.md`](./eufyApiReference.md) の調査で確定済み。残っているのはDiscord側・実装方針の決めごとのみ:
+
+- [ ] Embedの見た目の希望（色・アイコン画像など。現状は仮で青系＋シンプルなフィールド構成で実装済み）
+- [ ] `src/config/targets.js` の `eufyStats.guildId` / `eufyStats.channelId` に実際のID値を設定する（実装はプレースホルダーのまま）
+- [ ] `.env` に `EUFY_EMAIL` / `EUFY_PASSWORD` を追加する（未設定の間は機能が自動的に無効化される）
