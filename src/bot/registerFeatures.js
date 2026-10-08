@@ -27,14 +27,18 @@ function registerFeatures(client) {
   }
 
   client.once('ready', async () => {
-    for (const feature of features) {
-      if (!feature.init) continue;
-      try {
-        await feature.init(client);
-      } catch (err) {
-        logger.error(`[${feature.name}] init failed`, err);
-      }
-    }
+    // 並列実行にすることで、1機能の初期化が遅延/停止しても他機能をブロックしない
+    await Promise.allSettled(
+      features
+        .filter((feature) => feature.init)
+        .map(async (feature) => {
+          try {
+            await feature.init(client);
+          } catch (err) {
+            logger.error(`[${feature.name}] init failed`, err);
+          }
+        })
+    );
   });
 
   return {

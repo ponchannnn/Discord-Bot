@@ -1,9 +1,76 @@
-function timestamp() {
-  return new Date().toISOString();
+const fs = require('fs');
+const path = require('path');
+const paths = require('../config/paths');
+
+const LEVELS = { info: 0, warn: 1, error: 2 };
+const DM_MIN_LEVEL = LEVELS[process.env.LOG_DM_LEVEL] ?? LEVELS.warn;
+const DISCORD_MESSAGE_LIMIT = 2000;
+const LOG_DIR = path.join(paths.dataDir, 'logs');
+
+let client = null;
+let logTarget = null;
+// DM送信を直列化して順序を保つ
+let sendChain = Promise.resolve();
+
+function format(level, args, { withStack = true } = {}) {
+  const body = args
+    .map((a) => {
+      if (a instanceof Error) return withStack ? a.stack || a.message : a.message;
+      return typeof a === 'string' ? a : JSON.stringify(a);
+    })
+    .join(' ');
+  return `[${new Date().toISOString()}] [${level.toUpperCase()}] ${body}`;
+}
+
+// ここで失敗してもloggerを再帰的に呼ばないよう console のみ使う
+function writeToFile(line) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const file = path.join(LOG_DIR, `${new Date().toISOString().slice(0, 10)}.log`);
+    fs.appendFileSync(file, line + '\n', 'utf8');
+  } catch (err) {
+    console.error('[logger] Failed to write log file', err);
+  }
+}
+
+async function sendToChannel(line) {
+  if (!client?.isReady()) throw new Error('Discord client not ready');
+  const channel = await client.channels.fetch(logTarget.channelId);
+  if (!channel?.isTextBased() || channel.guildId !== logTarget.guildId) {
+    throw new Error('Log channel not found in the configured guild');
+  }
+  const text = line.length > DISCORD_MESSAGE_LIMIT - 10 ? line.slice(0, DISCORD_MESSAGE_LIMIT - 10) + '…' : line;
+  await channel.send('```\n' + text.replace(/```/g, "'''") + '\n```');
+}
+
+function log(level, args) {
+  const line = format(level, args);
+  const consoleFn = level === 'info' ? console.log : level === 'warn' ? console.warn : console.error;
+  consoleFn(line);
+
+  if (LEVELS[level] < DM_MIN_LEVEL) return;
+  if (!logTarget) {
+    writeToFile(line);
+    return;
+  }
+  // Discordには文章のみ送る(スタックトレースはコンソール/ファイルにだけ残す)
+  const discordLine = format(level, args, { withStack: false });
+  sendChain = sendChain
+    .then(() => sendToChannel(discordLine))
+    .catch(() => writeToFile(line));
+}
+
+// ready後に呼ぶ。それまでのDM対象ログはファイルに貯まる
+function attachDiscord(discordClient, target) {
+  client = discordClient;
+  logTarget = target;
 }
 
 module.exports = {
-  info: (...args) => console.log(`[${timestamp()}] [INFO]`, ...args),
-  warn: (...args) => console.warn(`[${timestamp()}] [WARN]`, ...args),
-  error: (...args) => console.error(`[${timestamp()}] [ERROR]`, ...args),
+  info: (...args) => log('info', args),
+  warn: (...args) => log('warn', args),
+  error: (...args) => log('error', args),
+  attachDiscord,
+  // シャットダウン前に未送信のDMを流し切る
+  flush: () => sendChain,
 };
